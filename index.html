@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.webmanifest">
+<title>Highland Gold — Recorder</title>
+<style>
+:root{--bg:#000;--ink:#f2e9d8;--amber:#ffb000;--dim:#7a5400;--slate:#8fa3ad;--alarm:#ff3b1f;--rule:#1c1c1c;--panel:#0a0a0a}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink)}
+body{font:400 16px/1.45 ui-monospace,"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;
+  padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);-webkit-user-select:none;user-select:none;overscroll-behavior:none}
+button{font:inherit;color:inherit;background:none;border:0}
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+
+header{display:flex;align-items:baseline;gap:10px;padding:10px 14px 8px;border-bottom:1px solid var(--rule)}
+header h1{margin:0;font-size:12px;letter-spacing:.22em;color:var(--dim);text-transform:uppercase;font-weight:400}
+#fix{margin-left:auto;font-size:12px;letter-spacing:.12em;color:var(--slate)}
+#fix.live{color:var(--amber)} #fix.bad{color:var(--alarm)}
+
+.readout{padding:16px 14px 12px}
+.gridref{font-size:clamp(36px,13vw,60px);line-height:1;color:var(--amber);font-weight:500;
+  font-variant-numeric:tabular-nums;text-shadow:0 0 18px rgba(255,176,0,.28);word-spacing:.12em}
+.gridref.stale{color:var(--dim);text-shadow:none}
+.sub{margin-top:9px;display:grid;grid-template-columns:1fr 1fr;gap:5px 14px;font-size:13px}
+.sub b{display:block;font-size:10px;letter-spacing:.18em;color:#4d5a61;font-weight:400;text-transform:uppercase}
+.sub span{font-variant-numeric:tabular-nums}
+
+.act{display:block;width:100%;min-height:56px;padding:16px;margin:0 0 10px;border:1px solid var(--dim);
+  color:var(--amber);font-size:15px;letter-spacing:.08em;text-transform:uppercase;text-align:center;
+  background:#0c0900;border-radius:2px}
+.act:active{background:var(--amber);color:#000}
+.act.big{min-height:76px;font-size:18px;border-width:2px}
+.act.ghost{border-color:var(--rule);color:var(--slate);background:var(--panel)}
+.wrap{padding:0 14px 40px}
+
+.log{list-style:none;margin:16px 0 0;padding:0}
+.log li{padding:13px 0;border-top:1px solid var(--rule);display:flex;gap:10px;align-items:baseline;min-height:52px}
+.log .ref{color:var(--amber);white-space:nowrap;font-variant-numeric:tabular-nums;font-size:14px}
+.log .mid{flex:1;font-size:13px;color:var(--slate);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.log .t{color:#4d5a61;font-size:12px;white-space:nowrap}
+.log li.todo .ref::after{content:" •";color:var(--alarm)}
+.empty{color:#4d5a61;font-size:14px;padding:26px 0;text-align:center;letter-spacing:.06em}
+
+/* editor sheet */
+#sheet{position:fixed;inset:0;background:var(--bg);z-index:20;display:none;flex-direction:column}
+#sheet.on{display:flex}
+.sheethead{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--rule);flex:none}
+.sheethead .ref{color:var(--amber);font-size:18px;font-variant-numeric:tabular-nums;flex:1}
+.sheethead button{padding:10px 14px;border:1px solid var(--rule);border-radius:2px;font-size:12px;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--slate)}
+.sheetbody{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:4px 14px 50px}
+
+.f{padding:14px 0;border-bottom:1px solid var(--rule)}
+.f > label{display:block;font-size:10px;letter-spacing:.18em;color:#4d5a61;text-transform:uppercase;margin-bottom:9px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{min-height:48px;padding:12px 15px;border:1px solid var(--rule);border-radius:2px;color:var(--slate);
+  font-size:14px;background:var(--panel)}
+.chip[aria-pressed="true"]{background:var(--amber);color:#000;border-color:var(--amber)}
+.counter{display:flex;align-items:center;gap:14px}
+.counter button{width:64px;height:56px;border:1px solid var(--dim);border-radius:2px;color:var(--amber);font-size:26px}
+.counter button:active{background:var(--amber);color:#000}
+.counter .val{font-size:34px;color:var(--amber);min-width:70px;text-align:center;font-variant-numeric:tabular-nums}
+textarea,input[type=number]{width:100%;background:var(--panel);border:1px solid var(--rule);color:var(--ink);
+  font:inherit;padding:12px;border-radius:2px;-webkit-user-select:text;user-select:text}
+textarea{min-height:92px;resize:vertical}
+.hint{color:#4d5a61;font-size:12px;line-height:1.55;margin:10px 0 0}
+.danger{color:var(--alarm);border-color:var(--alarm)!important}
+
+#toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(20px);
+  background:var(--amber);color:#000;padding:12px 22px;font-size:13px;letter-spacing:.08em;border-radius:2px;
+  opacity:0;transition:.18s;pointer-events:none;text-transform:uppercase;z-index:99}
+#toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Highland Gold · Recorder</h1>
+  <div id="fix">no fix</div>
+</header>
+
+<div class="readout">
+  <div class="gridref stale" id="gridref">— — — —</div>
+  <div class="sub">
+    <div><b>Lat / Long</b><span id="ll">—</span></div>
+    <div><b>Accuracy</b><span id="acc">—</span></div>
+    <div><b>Elevation</b><span id="elev">—</span></div>
+    <div><b>Pins today</b><span id="today">0</span></div>
+  </div>
+</div>
+
+<div class="wrap">
+  <button class="act big" id="quick">⚡ Quick pin</button>
+  <button class="act ghost" id="export">Export GeoJSON</button>
+  <ul class="log" id="list"></ul>
+  <p class="empty" id="empty">No pins yet.</p>
+  <p class="hint">
+    Photos: use the normal camera app, not this. Phone photos carry their own GPS and timestamp,
+    they get backed up, and they match to pins by time at home. Include the pan lip or a trowel
+    for scale.
+  </p>
+</div>
+
+<div id="sheet">
+  <div class="sheethead">
+    <div class="ref" id="s_ref">—</div>
+    <button id="s_del" class="danger">Delete</button>
+    <button id="s_done">Done</button>
+  </div>
+  <div class="sheetbody" id="s_body"></div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+const D = Math.PI/180;
+
+/* ---------- OSGB36 grid reference ---------- */
+function wgs84ToOSGB36(lat,lon,h){
+  const a=6378137,f=1/298.257223563,e2=2*f-f*f,phi=lat*D,lam=lon*D;
+  const nu=a/Math.sqrt(1-e2*Math.sin(phi)**2);
+  const x=(nu+h)*Math.cos(phi)*Math.cos(lam),y=(nu+h)*Math.cos(phi)*Math.sin(lam),z=((1-e2)*nu+h)*Math.sin(phi);
+  const tx=-446.448,ty=125.157,tz=-542.060,s=20.4894e-6;
+  const rx=-0.1502/3600*D,ry=-0.2470/3600*D,rz=-0.8421/3600*D;
+  const X=tx+x*(1+s)-y*rz+z*ry, Y=ty+x*rz+y*(1+s)-z*rx, Z=tz-x*ry+y*rx+z*(1+s);
+  const a2=6377563.396,f2=1/299.3249646,E2=2*f2-f2*f2,p=Math.sqrt(X*X+Y*Y);
+  let ph=Math.atan2(Z,p*(1-E2)),nu2,prev;
+  do{prev=ph;nu2=a2/Math.sqrt(1-E2*Math.sin(ph)**2);ph=Math.atan2(Z+E2*nu2*Math.sin(ph),p);}while(Math.abs(ph-prev)>1e-12);
+  return {lat:ph/D,lon:Math.atan2(Y,X)/D};
+}
+function osgb36ToGrid(lat,lon){
+  const phi=lat*D,lam=lon*D,a=6377563.396,b=6356256.909,F0=0.9996012717;
+  const phi0=49*D,lam0=-2*D,N0=-100000,E0=400000;
+  const e2=1-(b*b)/(a*a),n=(a-b)/(a+b),n2=n*n,n3=n*n*n;
+  const cp=Math.cos(phi),sp=Math.sin(phi),tp=Math.tan(phi);
+  const nu=a*F0/Math.sqrt(1-e2*sp*sp), rho=a*F0*(1-e2)/Math.pow(1-e2*sp*sp,1.5), eta2=nu/rho-1;
+  const Ma=(1+n+1.25*n2+1.25*n3)*(phi-phi0);
+  const Mb=(3*n+3*n2+2.625*n3)*Math.sin(phi-phi0)*Math.cos(phi+phi0);
+  const Mc=(1.875*n2+1.875*n3)*Math.sin(2*(phi-phi0))*Math.cos(2*(phi+phi0));
+  const Md=(35/24)*n3*Math.sin(3*(phi-phi0))*Math.cos(3*(phi+phi0));
+  const M=b*F0*(Ma-Mb+Mc-Md), I=M+N0, II=(nu/2)*sp*cp;
+  const III=(nu/24)*sp*Math.pow(cp,3)*(5-tp*tp+9*eta2);
+  const IIIA=(nu/720)*sp*Math.pow(cp,5)*(61-58*tp*tp+Math.pow(tp,4));
+  const IV=nu*cp, V=(nu/6)*Math.pow(cp,3)*(nu/rho-tp*tp);
+  const VI=(nu/120)*Math.pow(cp,5)*(5-18*tp*tp+Math.pow(tp,4)+14*eta2-58*tp*tp*eta2);
+  const dl=lam-lam0,dl2=dl*dl;
+  return {e:E0+IV*dl+V*dl2*dl+VI*dl2*dl2*dl, n:I+II*dl2+III*dl2*dl2+IIIA*dl2*dl2*dl2};
+}
+function refFor(lat,lon,alt,digits){
+  digits=digits||6;
+  const o=wgs84ToOSGB36(lat,lon,alt||0), g=osgb36ToGrid(o.lat,o.lon);
+  if(g.e<0||g.e>700000||g.n<0||g.n>1300000) return null;
+  const e100=Math.floor(g.e/1e5), n100=Math.floor(g.n/1e5);
+  const l1=(19-n100)-(19-n100)%5+Math.floor((e100+10)/5), l2=(19-n100)*5%25+e100%5;
+  const L=String.fromCharCode(l1+(l1>7?66:65), l2+(l2>7?66:65));
+  const h=digits/2, pad=v=>String(Math.floor(v)).padStart(h,"0");
+  return L+" "+pad(g.e%1e5/Math.pow(10,5-h))+" "+pad(g.n%1e5/Math.pow(10,5-h));
+}
+
+/* ---------- storage ---------- */
+const KEY="hg_pins_v2";
+let pins=[];
+try { pins = JSON.parse(localStorage.getItem(KEY)) || []; } catch(e){ pins=[]; }
+const save = () => { try{ localStorage.setItem(KEY, JSON.stringify(pins)); }catch(e){} };
+
+/* ---------- vocabularies ---------- */
+const VOCAB = {
+  pin_type:          ["sample","vantage","hazard","access","target"],
+  flow_state:        ["low","normal","high","spate"],
+  grain_character:   ["none","flour","flattened","flaky","chunky","crystalline","mixed"],
+  garnet_density:    ["none","trace","low","medium","high","heavy"],
+  black_sand_density:["none","trace","low","medium","high","heavy"],
+  bedrock_type:      ["greywacke","psammite","quartzite","schist","slate","granite","basalt",
+                      "sandstone","till_only","boulders_only","unknown"],
+  trap_type:         ["inside_bend","behind_boulder","plunge_pool_tail","natural_riffle",
+                      "bedrock_crevice","gravel_bar","confluence","false_bedrock","other"]
+};
+const LABEL = {
+  pin_type:"Pin type", flow_state:"Flow state", pans_worked:"Pans worked",
+  flake_count:"Flakes", picker_count:"Pickers", grain_character:"Grain character",
+  garnet_density:"Garnet", black_sand_density:"Black sand", bedrock_type:"Bedrock",
+  trap_type:"Trap type", crevice_strike_deg:"Crevice strike °", crevice_dip_deg:"Crevice dip °",
+  notes:"Notes"
+};
+
+/* ---------- state ---------- */
+let fix=null, editing=null;
+const $=id=>document.getElementById(id);
+const toast=m=>{const t=$("toast");t.textContent=m;t.classList.add("on");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("on"),1700);};
+const hhmm=d=>String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");
+const isToday=t=>new Date(t).toDateString()===new Date().toDateString();
+
+/* ---------- gps ---------- */
+navigator.geolocation && navigator.geolocation.watchPosition(p=>{
+  const c=p.coords;
+  fix={lat:c.latitude,lon:c.longitude,acc:c.accuracy,alt:c.altitude};
+  const r=refFor(fix.lat,fix.lon,fix.alt);
+  $("gridref").textContent=r||"off grid";
+  $("gridref").classList.remove("stale");
+  $("ll").textContent=fix.lat.toFixed(5)+", "+fix.lon.toFixed(5);
+  $("acc").textContent="±"+Math.round(fix.acc)+" m";
+  $("elev").textContent=fix.alt==null?"—":Math.round(fix.alt)+" m";
+  $("fix").textContent=fix.acc<=20?"fix":"coarse fix";
+  $("fix").className=fix.acc<=20?"live":"";
+}, err=>{
+  $("fix").textContent=err.code===1?"gps denied":"gps lost";
+  $("fix").className="bad";
+}, {enableHighAccuracy:true,maximumAge:5000,timeout:30000});
+
+/* ---------- quick pin ---------- */
+$("quick").onclick=()=>{
+  if(!fix){ toast("No fix yet"); return; }
+  const p={
+    pin_id:"pin_"+new Date().toISOString().replace(/[-:T.]/g,"").slice(0,14),
+    t:Date.now(), lat:fix.lat, lon:fix.lon, alt:fix.alt, acc:fix.acc,
+    osgb_ref:refFor(fix.lat,fix.lon,fix.alt),
+    pin_type:"sample", pans_worked:null, flake_count:null, picker_count:null,
+    grain_character:null, garnet_density:null, black_sand_density:null,
+    bedrock_type:null, trap_type:null, flow_state:null,
+    crevice_strike_deg:null, crevice_dip_deg:null, notes:""
+  };
+  pins.push(p); save(); render();
+  if(navigator.vibrate) navigator.vibrate(45);
+  toast("Pin "+p.osgb_ref);
+};
+
+/* ---------- list ---------- */
+function complete(p){ return p.pans_worked!=null && p.flake_count!=null; }
+function render(){
+  const ul=$("list"); ul.innerHTML="";
+  $("empty").style.display=pins.length?"none":"block";
+  $("today").textContent=pins.filter(p=>isToday(p.t)).length;
+  [...pins].reverse().forEach(p=>{
+    const li=document.createElement("li");
+    if(!complete(p)) li.className="todo";
+    const bits=[];
+    if(p.pans_worked!=null) bits.push(p.flake_count+"/"+p.pans_worked+" pans");
+    if(p.grain_character) bits.push(p.grain_character);
+    if(p.trap_type) bits.push(p.trap_type.replace(/_/g," "));
+    if(!bits.length) bits.push("tap to complete");
+    li.innerHTML='<span class="ref"></span><span class="mid"></span><span class="t">'+hhmm(new Date(p.t))+'</span>';
+    li.querySelector(".ref").textContent=p.osgb_ref||"—";
+    li.querySelector(".mid").textContent=bits.join(" · ");
+    li.onclick=()=>open(p.pin_id);
+    ul.appendChild(li);
+  });
+}
+
+/* ---------- editor ---------- */
+function field(html){ const d=document.createElement("div"); d.className="f"; d.innerHTML=html; return d; }
+
+function chipRow(p,key){
+  const d=field('<label>'+LABEL[key]+'</label><div class="chips"></div>');
+  const box=d.querySelector(".chips");
+  VOCAB[key].forEach(v=>{
+    const b=document.createElement("button");
+    b.className="chip"; b.type="button";
+    b.textContent=v.replace(/_/g," ");
+    b.setAttribute("aria-pressed", p[key]===v);
+    b.onclick=()=>{
+      p[key] = (p[key]===v) ? null : v;
+      save();
+      box.querySelectorAll(".chip").forEach(c=>c.setAttribute("aria-pressed", c.textContent===String(p[key]||"").replace(/_/g," ")));
+      render();
+    };
+    box.appendChild(b);
+  });
+  return d;
+}
+
+function counter(p,key,step){
+  step=step||1;
+  const d=field('<label>'+LABEL[key]+'</label><div class="counter">'+
+    '<button type="button">−</button><div class="val">—</div><button type="button">+</button></div>');
+  const val=d.querySelector(".val"), btns=d.querySelectorAll(".counter button");
+  const show=()=>{ val.textContent = p[key]==null ? "—" : p[key]; };
+  btns[0].onclick=()=>{ p[key] = p[key]==null ? 0 : Math.max(0,p[key]-step); save(); show(); render(); };
+  btns[1].onclick=()=>{ p[key] = p[key]==null ? step : p[key]+step; save(); show(); render(); };
+  show();
+  return d;
+}
+
+function number(p,key){
+  const d=field('<label>'+LABEL[key]+'</label><input type="number" inputmode="numeric" min="0" max="359">');
+  const i=d.querySelector("input");
+  i.value = p[key]==null ? "" : p[key];
+  i.oninput=()=>{ p[key] = i.value===""?null:Number(i.value); save(); };
+  return d;
+}
+
+function open(id){
+  const p=pins.find(x=>x.pin_id===id); if(!p) return;
+  editing=p;
+  $("s_ref").textContent=p.osgb_ref||"—";
+  const b=$("s_body"); b.innerHTML="";
+  b.appendChild(chipRow(p,"pin_type"));
+  b.appendChild(counter(p,"pans_worked"));
+  b.appendChild(counter(p,"flake_count"));
+  b.appendChild(counter(p,"picker_count"));
+  b.appendChild(chipRow(p,"grain_character"));
+  b.appendChild(chipRow(p,"trap_type"));
+  b.appendChild(chipRow(p,"bedrock_type"));
+  b.appendChild(chipRow(p,"black_sand_density"));
+  b.appendChild(chipRow(p,"garnet_density"));
+  b.appendChild(chipRow(p,"flow_state"));
+  b.appendChild(number(p,"crevice_strike_deg"));
+  b.appendChild(number(p,"crevice_dip_deg"));
+  const n=field('<label>Notes</label><textarea></textarea>');
+  const ta=n.querySelector("textarea"); ta.value=p.notes||"";
+  ta.oninput=()=>{ p.notes=ta.value; save(); };
+  b.appendChild(n);
+  const meta=document.createElement("p");
+  meta.className="hint";
+  meta.textContent = new Date(p.t).toLocaleString() + " · ±" + Math.round(p.acc) + " m · " +
+    p.lat.toFixed(5) + ", " + p.lon.toFixed(5);
+  b.appendChild(meta);
+  $("sheet").classList.add("on");
+  b.scrollTop=0;
+}
+
+$("s_done").onclick=()=>{ $("sheet").classList.remove("on"); editing=null; render(); };
+$("s_del").onclick=()=>{
+  if(!editing) return;
+  if(!confirm("Delete this pin?")) return;
+  pins=pins.filter(x=>x.pin_id!==editing.pin_id);
+  save(); $("sheet").classList.remove("on"); editing=null; render(); toast("Deleted");
+};
+
+/* ---------- export ---------- */
+$("export").onclick=()=>{
+  if(!pins.length){ toast("Nothing to export"); return; }
+  const fc={ type:"FeatureCollection", schema_version:1,
+    features: pins.map(p=>({
+      type:"Feature",
+      geometry:{ type:"Point", coordinates:[p.lon,p.lat, p.alt==null?0:p.alt] },
+      properties:{
+        pin_id:p.pin_id, timestamp:new Date(p.t).toISOString(), osgb_ref:p.osgb_ref,
+        gps_accuracy_m:p.acc==null?null:Math.round(p.acc),
+        pin_type:p.pin_type, pans_worked:p.pans_worked, flake_count:p.flake_count,
+        picker_count:p.picker_count, grain_character:p.grain_character,
+        garnet_density:p.garnet_density, black_sand_density:p.black_sand_density,
+        bedrock_type:p.bedrock_type, trap_type:p.trap_type, flow_state:p.flow_state,
+        crevice_strike_deg:p.crevice_strike_deg, crevice_dip_deg:p.crevice_dip_deg,
+        notes:p.notes||""
+      }
+    }))
+  };
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([JSON.stringify(fc,null,2)],{type:"application/geo+json"}));
+  a.download="highland-gold-"+new Date().toISOString().slice(0,10)+".geojson";
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+  toast("Exported "+pins.length+" pins");
+};
+
+render();
+if("serviceWorker" in navigator && location.protocol==="https:") navigator.serviceWorker.register("sw.js").catch(()=>{});
+</script>
+</body>
+</html>

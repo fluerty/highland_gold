@@ -1,0 +1,10 @@
+{
+  "name": "Highland Gold — Recorder",
+  "short_name": "HG Recorder",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
