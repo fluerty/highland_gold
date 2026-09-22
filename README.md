@@ -24,6 +24,13 @@ wet hands, no thinking. Pins with no detail yet show a red dot in the list.
 except notes. Do it at the spot if it's easy, or in the van, or that evening. Everything
 autosaves as you tap; there's no save button.
 
+**Add pin from grid ref** — the backup when GPS fails. Read the reference off the paper map
+by resection, type it in, add the time it was recorded. The app converts it back to lat/long
+and the pin behaves like any other. Accuracy is recorded honestly as the precision of the
+quoted square: ±500 m for a six-figure ref, ±50 m for eight. Pins entered this way are marked
+`from map` in the list and carry `position_source: "manual"` in the export, so they never get
+mistaken for satellite fixes in the analysis.
+
 **Export GeoJSON** at the end of each trip. Flat schema, opens straight in QGIS.
 
 ## Record the blanks
@@ -68,3 +75,17 @@ context showing which way the water runs, and the pan if there's colour.
 - No map. Deliberate — the map needs tiles, and tiles need a pipeline that isn't built yet.
   Use the paper OS Explorer sheet alongside, as you already do.
 - No compass capture. Take strike with a real compass and type the number.
+- **Check the accuracy figure before dropping a pin.** A network-derived position can read
+  ±2000 m and still produce a plausible-looking grid reference. The header says "fix" only
+  below ±20 m. If it's bad: step into the open, give it a minute, and check Chrome's location
+  permission is set to precise rather than approximate — it can revert after an update.
+
+## If GPS fails in the field
+
+1. Step into the open, wait a full minute — canopy and steep sides are the usual cause
+2. Check Google Maps knows where you are. If it does and this doesn't, it's a permission
+   problem, not a satellite one
+3. Turn off battery saver, which throttles location
+4. Otherwise: paper map, compass, resection, and **Add pin from grid ref**. Waterproof
+   notebook and pencil — biro won't write wet. Record the time with every entry; it's what
+   reconciles the paper record with your photos afterwards.

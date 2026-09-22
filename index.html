@@ -95,6 +95,7 @@ textarea{min-height:92px;resize:vertical}
 
 <div class="wrap">
   <button class="act big" id="quick">⚡ Quick pin</button>
+  <button class="act ghost" id="manual">✎ Add pin from grid ref</button>
   <button class="act ghost" id="export">Export GeoJSON</button>
   <ul class="log" id="list"></ul>
   <p class="empty" id="empty">No pins yet.</p>
@@ -162,6 +163,65 @@ function refFor(lat,lon,alt,digits){
   return L+" "+pad(g.e%1e5/Math.pow(10,5-h))+" "+pad(g.n%1e5/Math.pow(10,5-h));
 }
 
+/* ---------- grid reference -> lat/lon (for manual entry) ---------- */
+function parseGridRef(str){
+  const t=String(str).toUpperCase().replace(/[^A-Z0-9]/g,"");
+  const m=t.match(/^([A-Z]{2})(\d+)$/);
+  if(!m) return null;
+  let l1=m[1].charCodeAt(0)-65, l2=m[1].charCodeAt(1)-65;
+  if(l1>7) l1--; if(l2>7) l2--;
+  const e100=((l1-2)%5)*5+(l2%5), n100=(19-Math.floor(l1/5)*5)-Math.floor(l2/5);
+  if(e100<0||e100>6||n100<0||n100>12) return null;
+  const d=m[2];
+  if(d.length%2 || d.length<4 || d.length>10) return null;
+  const h=d.length/2, mult=Math.pow(10,5-h);
+  // centre of the quoted square, so a 6-fig ref lands mid-100m rather than on its corner
+  const half=mult/2;
+  return { e:e100*1e5+Number(d.slice(0,h))*mult+half,
+           n:n100*1e5+Number(d.slice(h))*mult+half, digits:d.length };
+}
+
+function gridToOSGB36(E,N){
+  const a=6377563.396,b=6356256.909,F0=0.9996012717;
+  const phi0=49*D,lam0=-2*D,N0=-100000,E0=400000;
+  const e2=1-(b*b)/(a*a),n=(a-b)/(a+b),n2=n*n,n3=n*n*n;
+  let phi=phi0,M=0,guard=0;
+  do{
+    phi=(N-N0-M)/(a*F0)+phi;
+    const Ma=(1+n+1.25*n2+1.25*n3)*(phi-phi0);
+    const Mb=(3*n+3*n2+2.625*n3)*Math.sin(phi-phi0)*Math.cos(phi+phi0);
+    const Mc=(1.875*n2+1.875*n3)*Math.sin(2*(phi-phi0))*Math.cos(2*(phi+phi0));
+    const Md=(35/24)*n3*Math.sin(3*(phi-phi0))*Math.cos(3*(phi+phi0));
+    M=b*F0*(Ma-Mb+Mc-Md);
+  } while(Math.abs(N-N0-M)>=0.00001 && ++guard<100);
+  const cp=Math.cos(phi),sp=Math.sin(phi),tp=Math.tan(phi);
+  const nu=a*F0/Math.sqrt(1-e2*sp*sp);
+  const rho=a*F0*(1-e2)/Math.pow(1-e2*sp*sp,1.5);
+  const eta2=nu/rho-1,t2=tp*tp,t4=t2*t2,t6=t4*t2;
+  const VII=tp/(2*rho*nu);
+  const VIII=tp/(24*rho*Math.pow(nu,3))*(5+3*t2+eta2-9*t2*eta2);
+  const IX=tp/(720*rho*Math.pow(nu,5))*(61+90*t2+45*t4);
+  const X=1/(cp*nu);
+  const XI=1/(6*cp*Math.pow(nu,3))*(nu/rho+2*t2);
+  const XII=1/(120*cp*Math.pow(nu,5))*(5+28*t2+24*t4);
+  const XIIA=1/(5040*cp*Math.pow(nu,7))*(61+662*t2+1320*t4+720*t6);
+  const d=E-E0,d2=d*d,d3=d2*d,d4=d2*d2,d5=d3*d2,d6=d4*d2,d7=d5*d2;
+  return { lat:(phi-VII*d2+VIII*d4-IX*d6)/D, lon:(lam0+X*d-XI*d3+XII*d5-XIIA*d7)/D };
+}
+
+function osgb36ToWgs84(lat,lon,h){
+  const a=6377563.396,f=1/299.3249646,e2=2*f-f*f,phi=lat*D,lam=lon*D;
+  const nu=a/Math.sqrt(1-e2*Math.sin(phi)**2);
+  const x=(nu+h)*Math.cos(phi)*Math.cos(lam),y=(nu+h)*Math.cos(phi)*Math.sin(lam),z=((1-e2)*nu+h)*Math.sin(phi);
+  const tx=446.448,ty=-125.157,tz=542.060,s=-20.4894e-6;
+  const rx=0.1502/3600*D,ry=0.2470/3600*D,rz=0.8421/3600*D;
+  const X=tx+x*(1+s)-y*rz+z*ry, Y=ty+x*rz+y*(1+s)-z*rx, Z=tz-x*ry+y*rx+z*(1+s);
+  const a2=6378137,f2=1/298.257223563,E2=2*f2-f2*f2,p=Math.sqrt(X*X+Y*Y);
+  let ph=Math.atan2(Z,p*(1-E2)),nu2,prev;
+  do{prev=ph;nu2=a2/Math.sqrt(1-E2*Math.sin(ph)**2);ph=Math.atan2(Z+E2*nu2*Math.sin(ph),p);}while(Math.abs(ph-prev)>1e-12);
+  return {lat:ph/D, lon:Math.atan2(Y,X)/D};
+}
+
 /* ---------- storage ---------- */
 const KEY="hg_pins_v2";
 let pins=[];
@@ -219,6 +279,7 @@ $("quick").onclick=()=>{
     pin_id:"pin_"+new Date().toISOString().replace(/[-:T.]/g,"").slice(0,14),
     t:Date.now(), lat:fix.lat, lon:fix.lon, alt:fix.alt, acc:fix.acc,
     osgb_ref:refFor(fix.lat,fix.lon,fix.alt),
+    position_source:"gps",
     pin_type:"sample", pans_worked:null, flake_count:null, picker_count:null,
     grain_character:null, garnet_density:null, black_sand_density:null,
     bedrock_type:null, trap_type:null, flow_state:null,
@@ -227,6 +288,37 @@ $("quick").onclick=()=>{
   pins.push(p); save(); render();
   if(navigator.vibrate) navigator.vibrate(45);
   toast("Pin "+p.osgb_ref);
+};
+
+/* ---------- manual pin from a grid reference ---------- */
+$("manual").onclick=()=>{
+  const raw=prompt("OS grid reference from the paper map\n(e.g. NN 328 306 — 4, 6, 8 or 10 figures):","");
+  if(raw===null) return;
+  const g=parseGridRef(raw);
+  if(!g){ toast("Not a valid grid ref"); return; }
+  const o=gridToOSGB36(g.e,g.n);
+  const w=osgb36ToWgs84(o.lat,o.lon,0);
+  let t=Date.now();
+  const hm=prompt("Time it was recorded (24h, e.g. 14:35).\nLeave blank for now:","");
+  if(hm){
+    const m=hm.match(/^(\d{1,2})\D?(\d{2})$/);
+    if(m){ const d=new Date(); d.setHours(+m[1],+m[2],0,0); t=d.getTime(); }
+  }
+  // quoted-square precision, in metres, as the honest accuracy figure
+  const prec={4:5000,6:500,8:50,10:5}[g.digits] || 500;
+  const p={
+    pin_id:"pin_"+new Date(t).toISOString().replace(/[-:T.]/g,"").slice(0,14)+"m",
+    t:t, lat:w.lat, lon:w.lon, alt:null, acc:prec,
+    osgb_ref:refFor(w.lat,w.lon,0,g.digits>6?8:6),
+    position_source:"manual",
+    pin_type:"sample", pans_worked:null, flake_count:null, picker_count:null,
+    grain_character:null, garnet_density:null, black_sand_density:null,
+    bedrock_type:null, trap_type:null, flow_state:null,
+    crevice_strike_deg:null, crevice_dip_deg:null, notes:""
+  };
+  pins.push(p); save(); render();
+  toast("Added "+p.osgb_ref);
+  open(p.pin_id);
 };
 
 /* ---------- list ---------- */
@@ -242,6 +334,7 @@ function render(){
     if(p.pans_worked!=null) bits.push(p.flake_count+"/"+p.pans_worked+" pans");
     if(p.grain_character) bits.push(p.grain_character);
     if(p.trap_type) bits.push(p.trap_type.replace(/_/g," "));
+    if(p.position_source==="manual") bits.push("from map");
     if(!bits.length) bits.push("tap to complete");
     li.innerHTML='<span class="ref"></span><span class="mid"></span><span class="t">'+hhmm(new Date(p.t))+'</span>';
     li.querySelector(".ref").textContent=p.osgb_ref||"—";
@@ -316,8 +409,9 @@ function open(id){
   b.appendChild(n);
   const meta=document.createElement("p");
   meta.className="hint";
-  meta.textContent = new Date(p.t).toLocaleString() + " · ±" + Math.round(p.acc) + " m · " +
-    p.lat.toFixed(5) + ", " + p.lon.toFixed(5);
+  meta.textContent = new Date(p.t).toLocaleString() +
+    (p.position_source==="manual" ? " · entered from map" : "") +
+    " · ±" + Math.round(p.acc) + " m · " + p.lat.toFixed(5) + ", " + p.lon.toFixed(5);
   b.appendChild(meta);
   $("sheet").classList.add("on");
   b.scrollTop=0;
@@ -341,6 +435,7 @@ $("export").onclick=()=>{
       properties:{
         pin_id:p.pin_id, timestamp:new Date(p.t).toISOString(), osgb_ref:p.osgb_ref,
         gps_accuracy_m:p.acc==null?null:Math.round(p.acc),
+        position_source:p.position_source||"gps",
         pin_type:p.pin_type, pans_worked:p.pans_worked, flake_count:p.flake_count,
         picker_count:p.picker_count, grain_character:p.grain_character,
         garnet_density:p.garnet_density, black_sand_density:p.black_sand_density,
