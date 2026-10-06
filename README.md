@@ -1,91 +1,77 @@
 # Highland Gold — Recorder
 
-A single-purpose field data recorder for the rest of this season. **Not** the full app —
-no maps, no layers, no model. It does one job: make sure every pan you work this autumn
-becomes a usable record for the winter analysis.
+A single-page offline app for recording pan results and rock samples in the field.
+No network calls, no CDN, no accounts, no tracking. Everything stays on the phone
+until you export it.
 
-## Getting it on the phone (10 minutes, once)
+## Two tabs
 
-Geolocation needs a secure origin, so opening the file from storage won't work.
+### Pins
+Pan results and site observations, as before. Quick pin from GPS, or enter a grid
+reference from the paper map. Exports GeoJSON.
 
-1. New GitHub repo, drop these four files in the root, Settings → Pages → deploy from
-   `main` / root.
-2. Open the Pages URL on the phone in Chrome.
-3. Menu → **Add to Home Screen**.
+### Samples — new
+Field capture for rocks. Deliberately short: this gets filled in standing in a river
+with cold hands, so it only asks for what cannot be recorded later.
 
-After that it opens full-screen and works with no signal. Data lives on the device.
+| Field | Why it is here |
+|---|---|
+| Sample ID | Auto `TYN-001`, `TYN-002`… Tap the prefix line to change area |
+| Grid reference | From GPS with accuracy, or entered from the map |
+| Photos | **In situ first, before you touch it.** Then with scale, then wet |
+| Context | Where it was lying. The field that decides whether the rest means anything |
+| Why you picked it up | One line. Future-you will not remember |
+| Taken / left in place | A boulder you left is still a record |
 
-## Using it
-
-**Quick pin** — one tap. Saves position, grid reference, accuracy, time. Half a second,
-wet hands, no thinking. Pins with no detail yet show a red dot in the list.
-
-**Tap any pin** to fill in the rest — tap-select chips and counters, nothing to type
-except notes. Do it at the spot if it's easy, or in the van, or that evening. Everything
-autosaves as you tap; there's no save button.
-
-**Add pin from grid ref** — the backup when GPS fails. Read the reference off the paper map
-by resection, type it in, add the time it was recorded. The app converts it back to lat/long
-and the pin behaves like any other. Accuracy is recorded honestly as the precision of the
-quoted square: ±500 m for a six-figure ref, ±50 m for eight. Pins entered this way are marked
-`from map` in the list and carry `position_source: "manual"` in the export, so they never get
-mistaken for satellite fixes in the analysis.
-
-**Export GeoJSON** at the end of each trip. Flat schema, opens straight in QGIS.
-
-## Record the blanks
-
-`pans_worked: 4, flake_count: 0` is a **result**, not a missing record. A model tuned only
-on successes can't discriminate — it learns "everywhere is good". Log every spot you work,
-including the ones that gave nothing.
-
-And deliberately work one spot per trip that you *don't* rate. That contrast is what makes
-the winter regression mean anything.
+Dimensions, mass, SG, hardness, streak, magnet, acid, microscope and identification
+are **bench work**. They go in the vault, not here.
 
 ## Photos
 
-Use the normal camera app, not this. Phone photos carry their own GPS and timestamp, they
-get backed up automatically, and they match to pins by time back at the bench. Building
-photo capture into a web app is the fiddliest part of the whole project and buys nothing
-this season.
+Stored shrunk — 1600 px long edge, JPEG — in the phone's own database (IndexedDB).
+Keep the full-size originals in your camera roll; they are the archive, this is the record.
 
-Include the **pan lip, a trowel or a coin** in every shot, or you'll get home with a picture
-of a crevice and no idea whether it's 3 cm or 30.
+Shrinking matters: a few hundred full-resolution photos will fill the storage quota and
+exports will fail. At 1600 px each shot is roughly 300–500 KB.
 
-Worth taking three shots per spot: the trap itself from above with scale, the trap in
-context showing which way the water runs, and the pan if there's colour.
+## Export
 
-## Fields, and why
+**Export samples (.zip)** produces one file:
 
-| Field | Why it's there |
-|---|---|
-| `pans_worked` | Denominator. Without it a flake count means nothing |
-| `flake_count`, `picker_count` | Yield. Crude but consistent, which is what regression needs |
-| `grain_character` | **The highest-value field.** Grain shape is a direction indicator — crystalline means near source, flour means far-travelled. It's how BGS drainage surveys vectored onto targets |
-| `trap_type` | Tests whether confluences are really the right proxy |
-| `bedrock_type` | `till_only` and `boulders_only` record *no accessible bedrock* — a real and common reason a good-looking spot gives nothing |
-| `flow_state` | Gold is emplaced in spates, not at summer flow |
-| `crevice_strike_deg` | Direction the structure runs — correlates against vein trend. Dip matters less |
-| `pin_type` | `vantage` marks a photo standpoint for repeat photography; `access` marks parking and crossings |
+```
+highland-gold-samples-YYYY-MM-DD.zip
+├── samples.json       every field, for the vault script
+├── samples.geojson    points for QGIS
+└── photos/
+    └── TYN-001_01_in_situ.jpg
+```
 
-## Limits, honestly
+Photo filenames carry the sample ID and the shot kind, so nothing can be orphaned if
+the zip is ever unpacked loose.
 
-- Data is in browser storage on that phone. **Export after every trip** and keep the file.
-  Clearing site data loses everything.
-- No map. Deliberate — the map needs tiles, and tiles need a pipeline that isn't built yet.
-  Use the paper OS Explorer sheet alongside, as you already do.
-- No compass capture. Take strike with a real compass and type the number.
-- **Check the accuracy figure before dropping a pin.** A network-derived position can read
-  ±2000 m and still produce a plausible-looking grid reference. The header says "fix" only
-  below ±20 m. If it's bad: step into the open, give it a minute, and check Chrome's location
-  permission is set to precise rather than approximate — it can revert after an update.
+The ZIP is written in-browser with no library — stored, uncompressed, because JPEGs are
+already compressed. Opens in anything.
 
-## If GPS fails in the field
+Pins still export separately as GeoJSON.
 
-1. Step into the open, wait a full minute — canopy and steep sides are the usual cause
-2. Check Google Maps knows where you are. If it does and this doesn't, it's a permission
-   problem, not a satellite one
-3. Turn off battery saver, which throttles location
-4. Otherwise: paper map, compass, resection, and **Add pin from grid ref**. Waterproof
-   notebook and pencil — biro won't write wet. Record the time with every entry; it's what
-   reconciles the paper record with your photos afterwards.
+## Offline
+
+There are no network requests in this app at all. GPS, camera, storage and export are
+all local. The service worker is network-first so updates reach the installed app when
+there is signal, and falls back to cache when there is not — so it works in a glen with
+no bars.
+
+GPS needs no signal. It is satellite positioning and works anywhere with sky view.
+
+## Installing
+
+Open the URL in Chrome, then menu → Add to Home screen. It runs full-screen from then on.
+
+Location permission must be set to **Precise**, not Approximate. Approximate returns a
+plausible-looking grid reference that is wrong by kilometres — check the accuracy figure
+reads single or low double digits before trusting a fix.
+
+## Data safety
+
+Everything lives in the phone's local storage. Clearing site data for this URL deletes
+all of it, pins and photos both. **Export after every trip.**

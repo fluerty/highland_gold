@@ -73,6 +73,28 @@ textarea{min-height:92px;resize:vertical}
   background:var(--amber);color:#000;padding:12px 22px;font-size:13px;letter-spacing:.08em;border-radius:2px;
   opacity:0;transition:.18s;pointer-events:none;text-transform:uppercase;z-index:99}
 #toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+/* tabs */
+.tabs{display:flex;border-bottom:1px solid var(--rule)}
+.tabs button{flex:1;padding:14px 8px;font-size:12px;letter-spacing:.16em;text-transform:uppercase;
+  color:#4d5a61;border-bottom:2px solid transparent}
+.tabs button[aria-selected="true"]{color:var(--amber);border-bottom-color:var(--amber)}
+section[hidden]{display:none}
+.offscreen{position:fixed;left:-9999px;width:1px;height:1px;opacity:0}
+
+/* photos */
+.shots{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.shot{position:relative;aspect-ratio:1;background:var(--panel);border:1px solid var(--rule);border-radius:2px;overflow:hidden}
+.shot img{width:100%;height:100%;object-fit:cover;display:block}
+.shot .k{position:absolute;left:0;right:0;bottom:0;background:rgba(0,0,0,.72);color:var(--amber);
+  font-size:9px;letter-spacing:.12em;text-transform:uppercase;padding:3px 4px;text-align:center}
+.shot .x{position:absolute;top:0;right:0;width:30px;height:30px;background:rgba(0,0,0,.72);color:var(--alarm);font-size:16px;line-height:30px;text-align:center}
+.addshot{min-height:56px;border:1px dashed var(--dim);border-radius:2px;color:var(--amber);
+  font-size:12px;letter-spacing:.1em;text-transform:uppercase;background:#0c0900;width:100%;margin-top:8px}
+.addshot:active{background:var(--amber);color:#000}
+.shotrow{display:flex;gap:8px;margin-top:8px}
+.shotrow button{flex:1;min-height:52px;border:1px solid var(--dim);border-radius:2px;color:var(--amber);
+  font-size:11px;letter-spacing:.08em;text-transform:uppercase;background:#0c0900}
+.shotrow button:active{background:var(--amber);color:#000}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -93,18 +115,38 @@ textarea{min-height:92px;resize:vertical}
   </div>
 </div>
 
-<div class="wrap">
+<nav class="tabs" role="tablist">
+  <button id="tab_pins" role="tab" aria-selected="true">Pins</button>
+  <button id="tab_samples" role="tab" aria-selected="false">Samples</button>
+</nav>
+
+<section id="v_pins" class="wrap">
   <button class="act big" id="quick">⚡ Quick pin</button>
   <button class="act ghost" id="manual">✎ Add pin from grid ref</button>
   <button class="act ghost" id="export">Export GeoJSON</button>
   <ul class="log" id="list"></ul>
   <p class="empty" id="empty">No pins yet.</p>
   <p class="hint">
-    Photos: use the normal camera app, not this. Phone photos carry their own GPS and timestamp,
-    they get backed up, and they match to pins by time at home. Include the pan lip or a trowel
-    for scale.
+    Pan results and site observations. For rocks, use the Samples tab.
   </p>
-</div>
+</section>
+
+<section id="v_samples" class="wrap" hidden>
+  <button class="act big" id="newsample">⛏ New sample</button>
+  <button class="act ghost" id="samplemanual">✎ Sample from grid ref</button>
+  <button class="act ghost" id="exportsamples">Export samples (.zip)</button>
+  <ul class="log" id="slist"></ul>
+  <p class="empty" id="sempty">No samples yet.</p>
+  <p class="hint">
+    Field capture only — ID, grid reference, context, why you picked it up, and photos.
+    Shoot <b>in situ first</b>, before you touch it: that is the one thing you cannot do later.
+    Tests and measurements happen at the bench.
+    Photos are stored shrunk; keep the full-size originals in your camera roll.
+  </p>
+  <p class="hint" id="areaLine"></p>
+</section>
+
+<input type="file" accept="image/*" capture="environment" id="cam" class="offscreen">
 
 <div id="sheet">
   <div class="sheethead">
@@ -226,7 +268,13 @@ function osgb36ToWgs84(lat,lon,h){
 const KEY="hg_pins_v2";
 let pins=[];
 try { pins = JSON.parse(localStorage.getItem(KEY)) || []; } catch(e){ pins=[]; }
-const save = () => { try{ localStorage.setItem(KEY, JSON.stringify(pins)); }catch(e){} };
+const SKEY="hg_samples_v1";
+let samples=[];
+try { samples = JSON.parse(localStorage.getItem(SKEY)) || []; } catch(e){ samples=[]; }
+const save = () => {
+  try{ localStorage.setItem(KEY, JSON.stringify(pins)); }catch(e){}
+  try{ localStorage.setItem(SKEY, JSON.stringify(samples)); }catch(e){ toast("Storage full"); }
+};
 
 /* ---------- vocabularies ---------- */
 const VOCAB = {
@@ -238,14 +286,20 @@ const VOCAB = {
   bedrock_type:      ["greywacke","psammite","quartzite","schist","slate","granite","basalt",
                       "sandstone","till_only","boulders_only","unknown"],
   trap_type:         ["inside_bend","behind_boulder","plunge_pool_tail","natural_riffle",
-                      "bedrock_crevice","gravel_bar","confluence","false_bedrock","other"]
+                      "bedrock_crevice","gravel_bar","confluence","false_bedrock","other"],
+  context:           ["in_situ","gravel_bar","stream_bed","bank_section","scree",
+                      "spoil","track_fill","unknown"],
+  disposition:       ["taken","left_in_place"]
 };
+const SHOT_KINDS = ["in_situ","scale","wet","other"];
 const LABEL = {
   pin_type:"Pin type", flow_state:"Flow state", pans_worked:"Pans worked",
   flake_count:"Flakes", picker_count:"Pickers", grain_character:"Grain character",
   garnet_density:"Garnet", black_sand_density:"Black sand", bedrock_type:"Bedrock",
   trap_type:"Trap type", crevice_strike_deg:"Crevice strike °", crevice_dip_deg:"Crevice dip °",
-  notes:"Notes"
+  notes:"Notes",
+  context:"Context — where it was lying", disposition:"Taken or left",
+  collected_because:"Why you picked it up"
 };
 
 /* ---------- state ---------- */
@@ -359,7 +413,7 @@ function chipRow(p,key){
       p[key] = (p[key]===v) ? null : v;
       save();
       box.querySelectorAll(".chip").forEach(c=>c.setAttribute("aria-pressed", c.textContent===String(p[key]||"").replace(/_/g," ")));
-      render();
+      render(); renderSamples();
     };
     box.appendChild(b);
   });
@@ -388,7 +442,7 @@ function number(p,key){
 
 function open(id){
   const p=pins.find(x=>x.pin_id===id); if(!p) return;
-  editing=p;
+  editing=p; editingSample=null;
   $("s_ref").textContent=p.osgb_ref||"—";
   const b=$("s_body"); b.innerHTML="";
   b.appendChild(chipRow(p,"pin_type"));
@@ -452,6 +506,328 @@ $("export").onclick=()=>{
   setTimeout(()=>URL.revokeObjectURL(a.href),5000);
   toast("Exported "+pins.length+" pins");
 };
+
+
+/* ===================================================================
+   SAMPLES
+   Field capture only: ID, grid ref, context, why, photos.
+   Photos live in IndexedDB as shrunk JPEGs. Nothing leaves the phone.
+   =================================================================== */
+
+/* ---------- photo store (IndexedDB) ---------- */
+const IDB = (()=>{
+  let dbp=null;
+  const open=()=>dbp || (dbp=new Promise((res,rej)=>{
+    const r=indexedDB.open("hg_photos",1);
+    r.onupgradeneeded=()=>{ r.result.createObjectStore("photos",{keyPath:"id"}); };
+    r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error);
+  }));
+  const tx=async(mode,fn)=>{ const db=await open(); return new Promise((res,rej)=>{
+    const t=db.transaction("photos",mode), st=t.objectStore("photos");
+    const q=fn(st); t.oncomplete=()=>res(q&&q.result); t.onerror=()=>rej(t.error); }); };
+  return {
+    put:(id,blob)=>tx("readwrite",st=>st.put({id,blob})),
+    get:(id)=>tx("readonly",st=>st.get(id)),
+    del:(id)=>tx("readwrite",st=>st.delete(id))
+  };
+})();
+
+/* ---------- shrink a camera file ---------- */
+const MAXPX=1600, QUALITY=0.82;
+async function shrink(file){
+  let bmp;
+  try { bmp = await createImageBitmap(file); }
+  catch(e){
+    bmp = await new Promise((res,rej)=>{ const i=new Image();
+      i.onload=()=>res(i); i.onerror=rej; i.src=URL.createObjectURL(file); });
+  }
+  const w=bmp.width, h=bmp.height, k=Math.min(1, MAXPX/Math.max(w,h));
+  const cw=Math.round(w*k), ch=Math.round(h*k);
+  const c=document.createElement("canvas"); c.width=cw; c.height=ch;
+  c.getContext("2d").drawImage(bmp,0,0,cw,ch);
+  if(bmp.close) bmp.close();
+  return await new Promise(r=>c.toBlob(r,"image/jpeg",QUALITY));
+}
+
+/* ---------- sample ids ---------- */
+const AREA_KEY="hg_area";
+function area(){ return localStorage.getItem(AREA_KEY) || "TYN"; }
+function nextSampleId(){
+  const a=area();
+  const n=samples.filter(x=>x.sample_id.startsWith(a+"-"))
+    .map(x=>parseInt(x.sample_id.slice(a.length+1),10)).filter(Number.isFinite);
+  return a+"-"+String((n.length?Math.max(...n):0)+1).padStart(3,"0");
+}
+function showArea(){
+  $("areaLine").innerHTML="Area prefix: <b>"+area()+"</b> — tap to change";
+  $("areaLine").onclick=()=>{
+    const v=prompt("Three-letter area prefix for new sample IDs\n(TYN Tyndrum · LED Glen Lednock · OCH Ochils · LUS Glen Luss · GBL Garabal · WAN Wanlockhead):", area());
+    if(v && /^[A-Za-z]{2,4}$/.test(v.trim())){ localStorage.setItem(AREA_KEY, v.trim().toUpperCase()); showArea(); toast("Prefix "+area()); }
+  };
+}
+
+/* ---------- create ---------- */
+function newSample(src){
+  const s={
+    sample_id: nextSampleId(),
+    t: Date.now(),
+    lat: src.lat, lon: src.lon, alt: src.alt==null?null:src.alt, acc: src.acc,
+    osgb_ref: src.ref,
+    position_source: src.source,
+    context: null, disposition: null, collected_because: "",
+    photos: []            /* {id, kind, t} */
+  };
+  samples.push(s); save(); renderSamples();
+  if(navigator.vibrate) navigator.vibrate(45);
+  openSample(s.sample_id);
+  return s;
+}
+
+$("newsample").onclick=()=>{
+  if(!fix){ toast("No fix yet"); return; }
+  newSample({lat:fix.lat,lon:fix.lon,alt:fix.alt,acc:fix.acc,
+             ref:refFor(fix.lat,fix.lon,fix.alt),source:"gps"});
+};
+
+$("samplemanual").onclick=()=>{
+  const raw=prompt("OS grid reference for this sample\n(e.g. NN 340 289 — 4, 6, 8 or 10 figures):","");
+  if(raw===null) return;
+  const g=parseGridRef(raw);
+  if(!g){ toast("Not a valid grid ref"); return; }
+  const o=gridToOSGB36(g.e,g.n), w=osgb36ToWgs84(o.lat,o.lon,0);
+  const prec={4:5000,6:500,8:50,10:5}[g.digits] || 500;
+  newSample({lat:w.lat,lon:w.lon,alt:null,acc:prec,
+             ref:refFor(w.lat,w.lon,0,g.digits>6?8:6),source:"manual"});
+};
+
+/* ---------- list ---------- */
+function sampleReady(s){ return s.context!=null && s.photos.length>0; }
+function renderSamples(){
+  const ul=$("slist"); ul.innerHTML="";
+  $("sempty").style.display=samples.length?"none":"block";
+  [...samples].reverse().forEach(s=>{
+    const li=document.createElement("li");
+    if(!sampleReady(s)) li.className="todo";
+    const bits=[];
+    bits.push(s.osgb_ref||"—");
+    if(s.context) bits.push(s.context.replace(/_/g," "));
+    bits.push(s.photos.length+(s.photos.length===1?" photo":" photos"));
+    if(s.disposition==="left_in_place") bits.push("left");
+    li.innerHTML='<span class="ref"></span><span class="mid"></span><span class="t">'+hhmm(new Date(s.t))+'</span>';
+    li.querySelector(".ref").textContent=s.sample_id;
+    li.querySelector(".mid").textContent=bits.join(" · ");
+    li.onclick=()=>openSample(s.sample_id);
+    ul.appendChild(li);
+  });
+}
+
+/* ---------- editor ---------- */
+let editingSample=null;
+function openSample(id){
+  const s=samples.find(x=>x.sample_id===id); if(!s) return;
+  editingSample=s; editing=null;
+  $("s_ref").textContent=s.sample_id;
+  const b=$("s_body"); b.innerHTML="";
+
+  /* photos first — the part with a deadline */
+  const pf=field('<label>Photos — in situ first, before you touch it</label><div class="shots"></div>');
+  const grid=pf.querySelector(".shots");
+  b.appendChild(pf);
+  drawShots(s,grid);
+
+  const row=document.createElement("div"); row.className="shotrow";
+  SHOT_KINDS.slice(0,3).forEach(k=>{
+    const btn=document.createElement("button"); btn.type="button";
+    btn.textContent="+ "+k.replace(/_/g," ");
+    btn.onclick=()=>capture(s,k,grid);
+    row.appendChild(btn);
+  });
+  pf.appendChild(row);
+  const more=document.createElement("button");
+  more.type="button"; more.className="addshot"; more.textContent="+ another";
+  more.onclick=()=>capture(s,"other",grid);
+  pf.appendChild(more);
+
+  b.appendChild(chipRow(s,"context"));
+
+  const why=field('<label>'+LABEL.collected_because+'</label><textarea placeholder="In the words you would use standing over it"></textarea>');
+  const wt=why.querySelector("textarea"); wt.value=s.collected_because||"";
+  wt.oninput=()=>{ s.collected_because=wt.value; save(); };
+  b.appendChild(why);
+
+  b.appendChild(chipRow(s,"disposition"));
+
+  const meta=document.createElement("p");
+  meta.className="hint";
+  meta.textContent = s.osgb_ref + " · " + new Date(s.t).toLocaleString() +
+    (s.position_source==="manual" ? " · entered from map" : "") +
+    " · ±" + Math.round(s.acc) + " m · " + s.lat.toFixed(5) + ", " + s.lon.toFixed(5);
+  b.appendChild(meta);
+
+  const note=document.createElement("p");
+  note.className="hint";
+  note.textContent="Tests, dimensions, mass and identification go in the vault at the bench, not here.";
+  b.appendChild(note);
+
+  $("sheet").classList.add("on");
+  b.scrollTop=0;
+}
+
+function drawShots(s,grid){
+  grid.innerHTML="";
+  s.photos.forEach(ph=>{
+    const d=document.createElement("div"); d.className="shot";
+    d.innerHTML='<div class="k"></div><button type="button" class="x">×</button>';
+    d.querySelector(".k").textContent=ph.kind.replace(/_/g," ");
+    IDB.get(ph.id).then(rec=>{
+      if(!rec) return;
+      const img=document.createElement("img");
+      img.src=URL.createObjectURL(rec.blob);
+      img.onload=()=>setTimeout(()=>URL.revokeObjectURL(img.src),30000);
+      d.insertBefore(img,d.firstChild);
+    }).catch(()=>{});
+    d.querySelector(".x").onclick=(e)=>{
+      e.stopPropagation();
+      if(!confirm("Delete this photo?")) return;
+      IDB.del(ph.id).catch(()=>{});
+      s.photos=s.photos.filter(x=>x.id!==ph.id);
+      save(); drawShots(s,grid); renderSamples();
+    };
+    grid.appendChild(d);
+  });
+}
+
+let pendingShot=null;
+function capture(s,kind,grid){
+  pendingShot={s,kind,grid};
+  $("cam").value="";
+  $("cam").click();
+}
+$("cam").onchange=async()=>{
+  const f=$("cam").files && $("cam").files[0];
+  if(!f || !pendingShot){ pendingShot=null; return; }
+  const {s,kind,grid}=pendingShot; pendingShot=null;
+  toast("Saving photo…");
+  try{
+    const blob=await shrink(f);
+    const id=s.sample_id+"_"+String(s.photos.length+1).padStart(2,"0")+"_"+kind;
+    await IDB.put(id,blob);
+    s.photos.push({id,kind,t:Date.now()});
+    save(); drawShots(s,grid); renderSamples();
+    toast("Photo saved");
+  }catch(e){ toast("Photo failed"); }
+};
+
+/* ---------- delete / done, shared sheet ---------- */
+const _done=$("s_done").onclick, _del=$("s_del").onclick;
+$("s_done").onclick=()=>{
+  if(editingSample){ $("sheet").classList.remove("on"); editingSample=null; renderSamples(); return; }
+  _done();
+};
+$("s_del").onclick=()=>{
+  if(editingSample){
+    if(!confirm("Delete sample "+editingSample.sample_id+" and its photos?")) return;
+    editingSample.photos.forEach(ph=>IDB.del(ph.id).catch(()=>{}));
+    samples=samples.filter(x=>x.sample_id!==editingSample.sample_id);
+    save(); $("sheet").classList.remove("on"); editingSample=null; renderSamples(); toast("Deleted");
+    return;
+  }
+  _del();
+};
+
+/* ---------- ZIP (stored, no compression — JPEGs are already compressed) ---------- */
+const CRCT=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;
+  for(let k=0;k<8;k++) c = c&1 ? 0xEDB88320^(c>>>1) : c>>>1; t[n]=c>>>0;} return t;})();
+function crc32(u8){ let c=0xFFFFFFFF; for(let i=0;i<u8.length;i++) c=CRCT[(c^u8[i])&0xFF]^(c>>>8); return (c^0xFFFFFFFF)>>>0; }
+function dosTime(d){ return ((d.getHours()<<11)|(d.getMinutes()<<5)|(d.getSeconds()/2))&0xFFFF; }
+function dosDate(d){ return (((d.getFullYear()-1980)<<9)|((d.getMonth()+1)<<5)|d.getDate())&0xFFFF; }
+function makeZip(files){
+  const enc=new TextEncoder(), now=new Date();
+  const T=dosTime(now), D=dosDate(now);
+  const locals=[], central=[]; let off=0;
+  files.forEach(f=>{
+    const name=enc.encode(f.name), data=f.data, crc=crc32(data);
+    const lh=new Uint8Array(30+name.length), lv=new DataView(lh.buffer);
+    lv.setUint32(0,0x04034b50,true); lv.setUint16(4,20,true); lv.setUint16(6,0,true);
+    lv.setUint16(8,0,true); lv.setUint16(10,T,true); lv.setUint16(12,D,true);
+    lv.setUint32(14,crc,true); lv.setUint32(18,data.length,true); lv.setUint32(22,data.length,true);
+    lv.setUint16(26,name.length,true); lv.setUint16(28,0,true);
+    lh.set(name,30);
+    locals.push(lh,data);
+    const ch=new Uint8Array(46+name.length), cv=new DataView(ch.buffer);
+    cv.setUint32(0,0x02014b50,true); cv.setUint16(4,20,true); cv.setUint16(6,20,true);
+    cv.setUint16(8,0,true); cv.setUint16(10,0,true); cv.setUint16(12,T,true); cv.setUint16(14,D,true);
+    cv.setUint32(16,crc,true); cv.setUint32(20,data.length,true); cv.setUint32(24,data.length,true);
+    cv.setUint16(28,name.length,true); cv.setUint32(42,off,true);
+    ch.set(name,46);
+    central.push(ch);
+    off += lh.length + data.length;
+  });
+  const cdSize=central.reduce((a,b)=>a+b.length,0);
+  const eo=new Uint8Array(22), ev=new DataView(eo.buffer);
+  ev.setUint32(0,0x06054b50,true); ev.setUint16(8,files.length,true); ev.setUint16(10,files.length,true);
+  ev.setUint32(12,cdSize,true); ev.setUint32(16,off,true);
+  return new Blob([...locals,...central,eo],{type:"application/zip"});
+}
+
+/* ---------- export ---------- */
+$("exportsamples").onclick=async()=>{
+  if(!samples.length){ toast("Nothing to export"); return; }
+  toast("Building…");
+  const enc=new TextEncoder();
+  const recs=samples.map(s=>({
+    sample_id:s.sample_id, timestamp:new Date(s.t).toISOString(),
+    osgb_ref:s.osgb_ref, lat:s.lat, lon:s.lon,
+    elevation_m:s.alt==null?null:Math.round(s.alt),
+    gps_accuracy_m:s.acc==null?null:Math.round(s.acc),
+    position_source:s.position_source,
+    context:s.context, disposition:s.disposition,
+    collected_because:s.collected_because||"",
+    photos:s.photos.map(ph=>"photos/"+ph.id+".jpg"),
+    photo_kinds:s.photos.map(ph=>ph.kind)
+  }));
+  const fc={type:"FeatureCollection",schema_version:1,record_type:"sample",
+    features:recs.map(r=>({type:"Feature",
+      geometry:{type:"Point",coordinates:[r.lon,r.lat,r.elevation_m==null?0:r.elevation_m]},
+      properties:{sample_id:r.sample_id,timestamp:r.timestamp,osgb_ref:r.osgb_ref,
+        gps_accuracy_m:r.gps_accuracy_m,position_source:r.position_source,
+        context:r.context,disposition:r.disposition,
+        collected_because:r.collected_because,photo_count:r.photos.length}}))};
+  const files=[
+    {name:"samples.json", data:enc.encode(JSON.stringify({schema_version:1,exported:new Date().toISOString(),samples:recs},null,2))},
+    {name:"samples.geojson", data:enc.encode(JSON.stringify(fc,null,2))}
+  ];
+  let missing=0;
+  for(const s of samples){
+    for(const ph of s.photos){
+      try{
+        const rec=await IDB.get(ph.id);
+        if(!rec){ missing++; continue; }
+        files.push({name:"photos/"+ph.id+".jpg", data:new Uint8Array(await rec.blob.arrayBuffer())});
+      }catch(e){ missing++; }
+    }
+  }
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(makeZip(files));
+  a.download="highland-gold-samples-"+new Date().toISOString().slice(0,10)+".zip";
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),10000);
+  toast("Exported "+samples.length+" samples"+(missing?" ("+missing+" photos missing)":""));
+};
+
+/* ---------- tabs ---------- */
+function tab(which){
+  const pins_=which==="pins";
+  $("tab_pins").setAttribute("aria-selected",pins_);
+  $("tab_samples").setAttribute("aria-selected",!pins_);
+  $("v_pins").hidden=!pins_;
+  $("v_samples").hidden=pins_;
+}
+$("tab_pins").onclick=()=>tab("pins");
+$("tab_samples").onclick=()=>tab("samples");
+
+showArea();
+renderSamples();
 
 render();
 if("serviceWorker" in navigator && location.protocol==="https:") navigator.serviceWorker.register("sw.js").catch(()=>{});
